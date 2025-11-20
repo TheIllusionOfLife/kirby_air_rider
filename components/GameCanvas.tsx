@@ -36,18 +36,18 @@ const createHoverTexture = (): THREE.CanvasTexture => {
 // Procedural Grass Texture
 const createGrassTexture = (): THREE.CanvasTexture => {
     const canvas = document.createElement('canvas');
-    canvas.width = 512;
-    canvas.height = 512;
+    canvas.width = 1024; // INCREASED RES
+    canvas.height = 1024;
     const ctx = canvas.getContext('2d')!;
 
     // Base Green
     ctx.fillStyle = '#388E3C'; 
-    ctx.fillRect(0, 0, 512, 512);
+    ctx.fillRect(0, 0, 1024, 1024);
 
     // Blades of grass (Noise)
-    for(let i=0; i<5000; i++) {
-        const x = Math.random() * 512;
-        const y = Math.random() * 512;
+    for(let i=0; i<20000; i++) {
+        const x = Math.random() * 1024;
+        const y = Math.random() * 1024;
         const w = 2 + Math.random() * 4;
         const h = 2 + Math.random() * 6;
         // Random varied greens
@@ -57,9 +57,9 @@ const createGrassTexture = (): THREE.CanvasTexture => {
     }
     
     // Add some dirt/dark patches
-    for(let i=0; i<200; i++) {
-         const x = Math.random() * 512;
-         const y = Math.random() * 512;
+    for(let i=0; i<500; i++) {
+         const x = Math.random() * 1024;
+         const y = Math.random() * 1024;
          const r = Math.random() * 10;
          ctx.fillStyle = 'rgba(40, 30, 10, 0.1)';
          ctx.beginPath();
@@ -72,6 +72,8 @@ const createGrassTexture = (): THREE.CanvasTexture => {
     tex.wrapT = THREE.RepeatWrapping;
     tex.repeat.set(40, 40); // High repeat for large ground
     tex.anisotropy = 16;
+    tex.minFilter = THREE.LinearFilter; // SMOOTH FILTER
+    tex.magFilter = THREE.LinearFilter;
     return tex;
 }
 
@@ -246,7 +248,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ config, onFinish }) => {
   const orbitAngleRef = useRef(0);
 
   const handleMobileInput = (type: string, active: boolean) => {
-      inputsRef.current.multiplier = 0.32; // Reduced sensitivity to 0.32
+      inputsRef.current.multiplier = 0.20; // Reduced sensitivity to 0.20
       if (type === 'left') inputsRef.current.left = active;
       if (type === 'right') inputsRef.current.right = active;
       if (type === 'drift') inputsRef.current.drift = active;
@@ -254,7 +256,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ config, onFinish }) => {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      inputsRef.current.multiplier = 0.5; 
+      inputsRef.current.multiplier = 0.15; 
       if (e.key === 'ArrowLeft') inputsRef.current.left = true;
       if (e.key === 'ArrowRight') inputsRef.current.right = true;
       if (e.key === ' ' || e.key === 'z') inputsRef.current.drift = true;
@@ -454,7 +456,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ config, onFinish }) => {
         color: 0x88ccee,
         transmission: 0.9, 
         transparent: true,
-        opacity: 0.4,
+        opacity: 0.5, // More transparent
         roughness: 0,
         ior: 1.5,
         thickness: 2,
@@ -552,7 +554,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ config, onFinish }) => {
       
       const isMobile = window.innerWidth < 768;
       // Multiplier: Global Speed (2.5x) + Mobile Boost (3.0x) if mobile
-      const GLOBAL_SPEED_SCALE = 2.5 * (isMobile ? 3.0 : 1.0);
+      const GLOBAL_SPEED_SCALE = 2.5 * (isMobile ? 1.0 : 1.0);
       
       const physicsScale = frameRatio * GLOBAL_SPEED_SCALE;
 
@@ -561,7 +563,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ config, onFinish }) => {
       guideGroup.children.forEach((mesh, i) => {
          const s = 1 + Math.sin(time + i * 0.5) * 0.2;
          mesh.scale.set(s, s, s);
-         (mesh as THREE.Mesh).material.opacity = 0.4 + Math.sin(time + i) * 0.3;
+         ((mesh as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = 0.4 + Math.sin(time + i) * 0.3;
       });
       
       decorGroup.children.forEach(child => {
@@ -806,6 +808,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ config, onFinish }) => {
         camera.updateProjectionMatrix();
         renderer.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight);
     };
+    // Trigger initial resize explicitly
+    handleResize();
+    
     window.addEventListener('resize', handleResize);
 
     return () => {
