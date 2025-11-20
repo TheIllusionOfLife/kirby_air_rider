@@ -14,34 +14,92 @@ interface ExtendedRacerState extends RacerState {
     progressT: number;
 }
 
-const createArrowTexture = (): THREE.CanvasTexture => {
+// Procedural Glow/Shadow Texture for Hover Effect
+const createHoverTexture = (): THREE.CanvasTexture => {
     const canvas = document.createElement('canvas');
-    canvas.width = 512;
+    canvas.width = 128;
     canvas.height = 128;
     const ctx = canvas.getContext('2d')!;
-    
-    // Transparent Background
-    ctx.fillStyle = 'rgba(0,0,0,0)';
-    ctx.clearRect(0, 0, 512, 128);
 
-    // Draw Arrows
-    ctx.fillStyle = '#00ffff'; 
-    ctx.shadowColor = '#00ffff';
-    ctx.shadowBlur = 20;
-    ctx.font = 'bold 100px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
+    // Radial Gradient (White center -> Cyan -> Transparent)
+    const grad = ctx.createRadialGradient(64, 64, 10, 64, 64, 60);
+    grad.addColorStop(0, 'rgba(255, 255, 255, 0.8)');
+    grad.addColorStop(0.4, 'rgba(0, 255, 255, 0.4)');
+    grad.addColorStop(1, 'rgba(0, 255, 255, 0)');
+
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 128, 128);
+
+    return new THREE.CanvasTexture(canvas);
+}
+
+// Procedural Grass Texture
+const createGrassTexture = (): THREE.CanvasTexture => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 512;
+    const ctx = canvas.getContext('2d')!;
+
+    // Base Green
+    ctx.fillStyle = '#388E3C'; 
+    ctx.fillRect(0, 0, 512, 512);
+
+    // Blades of grass (Noise)
+    for(let i=0; i<5000; i++) {
+        const x = Math.random() * 512;
+        const y = Math.random() * 512;
+        const w = 2 + Math.random() * 4;
+        const h = 2 + Math.random() * 6;
+        // Random varied greens
+        const lightness = 40 + Math.random() * 30; 
+        ctx.fillStyle = `hsl(120, 60%, ${lightness}%)`;
+        ctx.fillRect(x, y, w, h);
+    }
     
-    for(let i=0; i<4; i++) {
-        ctx.fillText('>', 64 + i * 128, 64);
+    // Add some dirt/dark patches
+    for(let i=0; i<200; i++) {
+         const x = Math.random() * 512;
+         const y = Math.random() * 512;
+         const r = Math.random() * 10;
+         ctx.fillStyle = 'rgba(40, 30, 10, 0.1)';
+         ctx.beginPath();
+         ctx.arc(x, y, r, 0, Math.PI*2);
+         ctx.fill();
     }
 
     const tex = new THREE.CanvasTexture(canvas);
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.RepeatWrapping;
-    tex.repeat.set(10, 1); 
+    tex.repeat.set(40, 40); // High repeat for large ground
+    tex.anisotropy = 16;
     return tex;
 }
+
+// Create a Chevron Shape for the holographic guides
+const createChevronTexture = (): THREE.CanvasTexture => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 256;
+    const ctx = canvas.getContext('2d')!;
+    ctx.clearRect(0,0,256,256);
+    
+    // Draw Chevron pointing UP (which we will orient forward)
+    ctx.strokeStyle = '#00ffff';
+    ctx.lineWidth = 40;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.shadowColor = '#00ffff';
+    ctx.shadowBlur = 30;
+
+    ctx.beginPath();
+    ctx.moveTo(40, 180);
+    ctx.lineTo(128, 80);
+    ctx.lineTo(216, 180);
+    ctx.stroke();
+
+    return new THREE.CanvasTexture(canvas);
+}
+
 
 const MobileControls: React.FC<{ onInput: (type: string, active: boolean) => void }> = ({ onInput }) => {
   const handleTouch = (type: string, active: boolean) => (e: React.TouchEvent | React.MouseEvent) => {
@@ -188,7 +246,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ config, onFinish }) => {
   const orbitAngleRef = useRef(0);
 
   const handleMobileInput = (type: string, active: boolean) => {
-      inputsRef.current.multiplier = 0.65; 
+      inputsRef.current.multiplier = 0.32; // Reduced sensitivity to 0.32
       if (type === 'left') inputsRef.current.left = active;
       if (type === 'right') inputsRef.current.right = active;
       if (type === 'drift') inputsRef.current.drift = active;
@@ -220,20 +278,16 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ config, onFinish }) => {
     points.push(points[0]);
     const tempCurve = new THREE.CatmullRomCurve3(points, true, 'catmullrom', 0.5);
 
-    // Start at 10% of the track to safely clear the loop seam (t=0/1)
-    // This ensures the camera (150 units behind) is well clear of any geometry artifacts at the closure.
+    // Start at 10% of the track
     const startT = 0.1;
     const startPt3 = tempCurve.getPointAt(startT);
     const tangent = tempCurve.getTangentAt(startT).normalize();
     const startAngle = Math.atan2(tangent.z, tangent.x);
     
-    // Perpendicular vector for lane spacing (Rotate tangent 90 degrees)
-    // 2D: x -> x, y -> z. Tangent(x, z). Perp(-z, x)
     const perp = { x: -tangent.z, y: tangent.x };
     const laneSpacing = 70;
 
     const createRacer = (type: RacerType, isPlayer: boolean, idx: number): ExtendedRacerState => {
-      // idx 0: Center, idx 1: Left, idx 2: Right
       const laneOffset = idx === 0 ? 0 : idx === 1 ? -1 : 1;
       
       const startPos = {
@@ -275,7 +329,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ config, onFinish }) => {
     finishedTriggeredRef.current = false;
 
     let count = 3;
-    // Initialize Ref
     countDownRef.current = 3;
     setCountDown(3);
 
@@ -283,7 +336,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ config, onFinish }) => {
       count--;
       const displayCount = count > 0 ? count : null;
       setCountDown(displayCount);
-      countDownRef.current = displayCount; // Update Ref for loop
+      countDownRef.current = displayCount; 
       
       if (count <= 0) {
         clearInterval(timer);
@@ -307,6 +360,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ config, onFinish }) => {
     cameraRef.current = camera;
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    // OPTIMIZATION: Limit pixel ratio to 2 to improve mobile performance
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight);
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -322,8 +377,13 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ config, onFinish }) => {
     dirLight.shadow.mapSize.height = 2048;
     scene.add(dirLight);
 
-    // Ground
-    const groundMat = new THREE.MeshStandardMaterial({ color: 0x8bc34a, roughness: 1.0 });
+    // Ground with Grass Texture
+    const grassTex = createGrassTexture();
+    const groundMat = new THREE.MeshStandardMaterial({ 
+        map: grassTex,
+        roughness: 1.0,
+        color: 0xddffdd // tint the texture slightly
+    });
     const groundGeo = new THREE.PlaneGeometry(20000, 20000);
     const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2;
@@ -388,20 +448,18 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ config, onFinish }) => {
     roadMesh.position.y = -2; 
     scene.add(roadMesh);
 
-    // Glass Walls
-    const arrowTex = createArrowTexture();
+    // Clean Glass Walls (REMOVED ARROW TEXTURE)
     const railGeo = new THREE.TubeGeometry(curve, tubeSegments, tubeRadius + 2, 8, true);
     const railMat = new THREE.MeshPhysicalMaterial({
-        color: 0xffffff,
+        color: 0x88ccee,
         transmission: 0.9, 
-        opacity: 1,
+        transparent: true,
+        opacity: 0.4,
         roughness: 0,
         ior: 1.5,
         thickness: 2,
         side: THREE.DoubleSide,
-        alphaMap: arrowTex, 
-        alphaTest: 0.01,
-        blending: THREE.AdditiveBlending,
+        blending: THREE.NormalBlending,
         depthWrite: false 
     });
     const railMesh = new THREE.Mesh(railGeo, railMat);
@@ -409,9 +467,57 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ config, onFinish }) => {
     railMesh.scale.y = 0.5; 
     scene.add(railMesh);
 
+    // FLOATING 3D HOLOGRAPHIC GUIDES
+    const chevronTex = createChevronTexture();
+    const guideGroup = new THREE.Group();
+    
+    // Create ~40 guides along the track
+    const guideCount = 40;
+    for(let i=0; i<guideCount; i++) {
+        const t = i / guideCount;
+        const pt = curve.getPointAt(t);
+        const tangent = curve.getTangentAt(t).normalize();
+        
+        // Create Chevron Mesh (Plane)
+        const geom = new THREE.PlaneGeometry(100, 100);
+        const mat = new THREE.MeshBasicMaterial({
+            map: chevronTex,
+            transparent: true,
+            opacity: 0.6,
+            color: 0x00ffff,
+            side: THREE.DoubleSide,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
+        });
+        const mesh = new THREE.Mesh(geom, mat);
+        
+        // Position: Center of track, elevated
+        mesh.position.copy(pt);
+        mesh.position.y = 60; // Height above road
+        
+        // Orientation: Look at the next point on the curve
+        // We look at a point slightly ahead to align with the tangent
+        const lookAtPt = pt.clone().add(tangent);
+        mesh.lookAt(lookAtPt);
+        
+        // Rotate X to lay it flat-ish or face the driver?
+        // Let's have them face the driver (vertical gates) like Checkpoints
+        // Tangent lookAt makes Z-axis point forward. Plane faces Z. 
+        // So it should be correct as a "gate" you fly through.
+        
+        guideGroup.add(mesh);
+    }
+    scene.add(guideGroup);
+
+
+    // Hover Glow Texture
+    const hoverTex = createHoverTexture();
+
     // Racers
     racersRef.current.forEach(racer => {
       const group = new THREE.Group();
+      
+      // Sprite
       const textureLoader = new THREE.TextureLoader();
       const map = textureLoader.load(RACER_SVGS[racer.type]);
       map.minFilter = THREE.LinearFilter;
@@ -420,15 +526,47 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ config, onFinish }) => {
       sprite.scale.set(60, 60, 1); 
       sprite.position.y = 25;
       group.add(sprite);
+
+      // Hover Glow Ring (Floating Effect)
+      const hoverGeo = new THREE.PlaneGeometry(60, 60);
+      const hoverMat = new THREE.MeshBasicMaterial({ 
+          map: hoverTex, 
+          transparent: true, 
+          opacity: 0.6, 
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          side: THREE.DoubleSide
+      });
+      const hoverMesh = new THREE.Mesh(hoverGeo, hoverMat);
+      hoverMesh.rotation.x = -Math.PI / 2;
+      hoverMesh.position.y = 2; 
+      group.add(hoverMesh);
+
       scene.add(group);
       racerMeshesRef.current[racer.id] = group;
     });
 
     const animate = () => {
-      if (railMat.alphaMap) railMat.alphaMap.offset.x -= 0.005; 
+      const delta = Math.min(clock.getDelta(), 0.1); // Cap to 10fps max lag
+      const frameRatio = delta * 60; 
+      
+      const isMobile = window.innerWidth < 768;
+      // Multiplier: Global Speed (2.5x) + Mobile Boost (3.0x) if mobile
+      const GLOBAL_SPEED_SCALE = 2.5 * (isMobile ? 3.0 : 1.0);
+      
+      const physicsScale = frameRatio * GLOBAL_SPEED_SCALE;
+
+      // Pulse the Guides
+      const time = Date.now() * 0.005;
+      guideGroup.children.forEach((mesh, i) => {
+         const s = 1 + Math.sin(time + i * 0.5) * 0.2;
+         mesh.scale.set(s, s, s);
+         (mesh as THREE.Mesh).material.opacity = 0.4 + Math.sin(time + i) * 0.3;
+      });
+      
       decorGroup.children.forEach(child => {
-          child.rotation.x += child.userData.rotSpeed;
-          child.rotation.y += child.userData.rotSpeed;
+          child.rotation.x += child.userData.rotSpeed * frameRatio;
+          child.rotation.y += child.userData.rotSpeed * frameRatio;
       });
 
       // Game Logic
@@ -450,7 +588,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ config, onFinish }) => {
             const isAI = !racer.isPlayer || racer.finished;
             
             // PREMATURE START FIX:
-            // If not finished and game not active, skip physics/movement entirely
             if (!racer.finished && !gameActiveRef.current) {
                 return;
             }
@@ -487,8 +624,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ config, onFinish }) => {
             
             if (driftInput) {
                 if (!racer.isDrifting) racer.isDrifting = true;
-                racer.currentSpeed *= 0.995; 
-                racer.chargeLevel = Math.min(100, racer.chargeLevel + racer.stats.chargeSpeed * 2);
+                racer.currentSpeed *= Math.pow(0.995, frameRatio); 
+                racer.chargeLevel = Math.min(100, racer.chargeLevel + racer.stats.chargeSpeed * 2 * frameRatio);
                 steerInput *= 2.5; 
             } else {
                 if (racer.isDrifting) {
@@ -498,17 +635,17 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ config, onFinish }) => {
                     racer.chargeLevel = 0;
                 }
                 if (racer.currentSpeed < targetSpeed) {
-                    racer.currentSpeed += acceleration;
+                    racer.currentSpeed += acceleration * physicsScale;
                 } else if (racer.currentSpeed > targetSpeed) {
-                    racer.currentSpeed -= acceleration * 0.05; 
+                    racer.currentSpeed -= acceleration * 0.05 * physicsScale; 
                 }
             }
             
             if (racer.currentSpeed < 0) racer.currentSpeed = 0;
-            racer.angle += steerInput * racer.stats.turnSpeed;
+            racer.angle += steerInput * racer.stats.turnSpeed * physicsScale;
 
-            let nextX = racer.position.x + Math.cos(racer.angle) * racer.currentSpeed * 50; 
-            let nextY = racer.position.y + Math.sin(racer.angle) * racer.currentSpeed * 50;
+            let nextX = racer.position.x + Math.cos(racer.angle) * racer.currentSpeed * 50 * physicsScale; 
+            let nextY = racer.position.y + Math.sin(racer.angle) * racer.currentSpeed * 50 * physicsScale;
 
             // Wall Collision (Clamp to tube)
             const p3 = new THREE.Vector3(nextX, 0, nextY);
@@ -542,7 +679,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ config, onFinish }) => {
             let bestT = racer.progressT;
             let minD = Infinity;
             const pCur = new THREE.Vector3(racer.position.x, 0, racer.position.y);
-            // Wide search to catch fast movement
+            // Wide search
             for(let dt = -0.02; dt <= 0.05; dt+=0.001) {
                  let tryT = racer.progressT + dt;
                  if(tryT > 1) tryT -= 1;
@@ -605,20 +742,33 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ config, onFinish }) => {
       }
 
       // Visual Sync
+      const now = Date.now();
       racersRef.current.forEach(racer => {
-          const mesh = racerMeshesRef.current[racer.id];
-          if (mesh) {
-              mesh.position.set(racer.position.x, 0, racer.position.y);
-              const sprite = mesh.children[0];
+          const group = racerMeshesRef.current[racer.id];
+          if (group) {
+              group.position.set(racer.position.x, 0, racer.position.y);
+              const sprite = group.children[0] as THREE.Sprite;
+              const hoverMesh = group.children[1] as THREE.Mesh;
+
               let tilt = 0;
               if (racer.isPlayer && !racer.finished) {
                    if (inputsRef.current.left) tilt = 0.25;
                    if (inputsRef.current.right) tilt = -0.25;
               }
               const currentRot = sprite.material.rotation;
-              sprite.material.rotation = V.lerp(currentRot, tilt, 0.1);
-              const bounce = Math.sin(Date.now() * 0.01) * 2.0;
+              // Lerp independent of frame rate
+              sprite.material.rotation = V.lerp(currentRot, tilt, 0.1 * frameRatio);
+              
+              // Bounce
+              const bounce = Math.sin(now * 0.005 + (racer.isPlayer ? 0 : 2)) * 2.0;
               sprite.position.y = 25 + bounce;
+
+              // Hover Glow Pulse
+              if (hoverMesh) {
+                  const pulse = 1.0 + Math.sin(now * 0.01) * 0.2;
+                  hoverMesh.scale.set(pulse, pulse, 1);
+                  (hoverMesh.material as THREE.MeshBasicMaterial).opacity = 0.4 + Math.sin(now * 0.01) * 0.2;
+              }
           }
       });
 
@@ -632,10 +782,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ config, onFinish }) => {
               player.position.y - Math.sin(player.angle) * camDist
           );
           if (countDownRef.current !== null) camera.position.copy(targetCamPos);
-          else camera.position.lerp(targetCamPos, 0.1);
+          else camera.position.lerp(targetCamPos, 0.1 * frameRatio);
           camera.lookAt(player.position.x, 10, player.position.y);
       } else {
-          orbitAngleRef.current += 0.005;
+          orbitAngleRef.current += 0.005 * frameRatio;
           const orbitDist = 200;
           camera.position.x = player.position.x + Math.cos(orbitAngleRef.current) * orbitDist;
           camera.position.z = player.position.y + Math.sin(orbitAngleRef.current) * orbitDist;
@@ -648,6 +798,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ config, onFinish }) => {
     };
 
     const animationId = requestAnimationFrame(animate);
+    const clock = new THREE.Clock();
 
     const handleResize = () => {
         if (!mountRef.current) return;
@@ -663,7 +814,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ config, onFinish }) => {
       mountRef.current?.removeChild(renderer.domElement);
       renderer.dispose();
     };
-    // CRITICAL: Do not add countDown to dependency array. Use Ref instead.
   }, [config, onFinish]);
 
   return (
